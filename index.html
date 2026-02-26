@@ -23,14 +23,16 @@
             --light: rgba(44, 24, 16, 0.6);
         }
 
-        html { scroll-behavior: smooth; }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
 
         body {
             font-family: 'Crimson Text', Georgia, serif;
             background: var(--warm-white);
             color: var(--dark);
             line-height: 1.85;
-            overflow-x: hidden;
         }
 
         /* ===== PROGRESS BAR ===== */
@@ -58,14 +60,83 @@
 
         /* ===== SECTIONS ===== */
         .section {
-            position: relative;
-            min-height: 100vh;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100vh;
+            overflow-y: auto;
+            overflow-x: hidden;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             padding: 10vh 5vw;
             z-index: 1;
+            /* Start all sections off-screen below */
+            transform: translateY(100vh);
+            /* Cinematic ease */
+            transition: transform 0.85s cubic-bezier(0.77, 0, 0.175, 1),
+                        opacity 0.4s ease;
+            will-change: transform;
+        }
+
+        /* First section starts visible */
+        .section:first-of-type {
+            transform: translateY(0);
+        }
+
+        /* ===== DOT NAVIGATION ===== */
+        #dot-nav {
+            position: fixed;
+            right: 1.4rem;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px 4px;
+        }
+
+        #dot-nav button {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            border: 1.5px solid rgba(255, 107, 107, 0.55);
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            padding: 0;
+            outline: none;
+            position: relative;
+        }
+
+        #dot-nav button::after {
+            content: '';
+            position: absolute;
+            inset: -6px;
+        }
+
+        #dot-nav button.active {
+            background: var(--coral);
+            border-color: var(--coral);
+            transform: scale(1.6);
+            box-shadow: 0 0 8px var(--coral-glow);
+        }
+
+        #dot-nav button:hover:not(.active) {
+            background: rgba(255, 107, 107, 0.4);
+            border-color: var(--coral);
+            transform: scale(1.3);
+        }
+
+        /* Dark-section dot overrides */
+        #dot-nav.on-dark button:not(.active) {
+            border-color: rgba(255, 255, 255, 0.45);
+        }
+        #dot-nav.on-dark button:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.7);
         }
 
         .container {
@@ -244,7 +315,13 @@
             left: 50%;
             transform: translateX(-50%);
             opacity: 0;
-            animation: fade-up 1s ease 2s forwards;
+            animation: fade-up 1s ease 2.5s forwards;
+            cursor: pointer;
+        }
+
+        .scroll-hint.hidden {
+            opacity: 0 !important;
+            pointer-events: none;
         }
 
         .scroll-hint .arrow {
@@ -494,6 +571,8 @@
                 100% { width: 220px; height: 220px; opacity: 0; }
             }
             .quote, .ai-block { padding: 1.5rem; margin: 2rem 0; }
+            #dot-nav { right: 0.6rem; gap: 5px; }
+            #dot-nav button { width: 5px; height: 5px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -943,9 +1022,7 @@ resize();
 window.addEventListener('resize', resize);
 
 class Particle {
-    constructor() {
-        this.reset();
-    }
+    constructor() { this.reset(); }
     reset() {
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
@@ -953,12 +1030,11 @@ class Particle {
         this.speedX = (Math.random() - 0.5) * 0.3;
         this.speedY = (Math.random() - 0.5) * 0.3;
         this.opacity = Math.random() * 0.15 + 0.05;
-        this.hue = Math.random() * 30; // warm range
+        this.hue = Math.random() * 30;
     }
     update() {
         this.x += this.speedX;
         this.y += this.speedY;
-        // gentle drift toward mouse
         const dx = mouse.x - this.x;
         const dy = mouse.y - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -967,9 +1043,7 @@ class Particle {
             this.y += dy * 0.001;
             this.opacity = Math.min(this.opacity + 0.002, 0.25);
         }
-        if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
-            this.reset();
-        }
+        if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) this.reset();
     }
     draw() {
         ctx.beginPath();
@@ -978,81 +1052,245 @@ class Particle {
         ctx.fill();
     }
 }
-
 for (let i = 0; i < 60; i++) particles.push(new Particle());
-
 function animateParticles() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     particles.forEach(p => { p.update(); p.draw(); });
     requestAnimationFrame(animateParticles);
 }
 animateParticles();
+document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 
-document.addEventListener('mousemove', e => {
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
-});
+// ===== FULLSCREEN CHAPTER NAVIGATION =====
+class FullscreenScroll {
+    constructor() {
+        this.sections = [...document.querySelectorAll('.section')];
+        this.current = 0;
+        this.animating = false;
+        this.touchStartY = 0;
+        this.touchStartScrollTop = 0;
+        this.dots = [];
+        this.lastWheelTime = 0;
+        this.init();
+    }
 
-// ===== PROGRESS BAR =====
-const progressBar = document.getElementById('progressBar');
-window.addEventListener('scroll', () => {
-    const scrollTop = window.scrollY;
-    const docHeight = document.body.scrollHeight - window.innerHeight;
-    const progress = (scrollTop / docHeight) * 100;
-    progressBar.style.width = progress + '%';
-});
+    init() {
+        // First section at 0, rest off-screen below
+        this.sections.forEach((s, i) => {
+            s.style.transition = 'none';
+            s.style.transform = i === 0 ? 'translateY(0)' : 'translateY(100vh)';
+            s.style.zIndex = i === 0 ? '2' : '1';
+        });
+        // Re-enable transitions after a tick
+        requestAnimationFrame(() => {
+            this.sections.forEach(s => { s.style.transition = ''; });
+        });
 
-// ===== STAGGERED REVEAL =====
-const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            // Stagger children with .anim class
-            const parent = entry.target;
-            const animElements = parent.querySelectorAll('.anim');
-            animElements.forEach((el, i) => {
-                setTimeout(() => {
-                    el.classList.add('visible');
-                }, i * 120);
-            });
-            observer.unobserve(parent);
+        this.createDotNav();
+        this.bindWheel();
+        this.bindTouch();
+        this.bindKeyboard();
+        this.activateSection(0, true);
+        this.updateProgress();
+    }
+
+    goTo(index) {
+        if (this.animating) return;
+        if (index < 0 || index >= this.sections.length) return;
+
+        this.animating = true;
+        const prev = this.current;
+        const next = index;
+        const dir = next > prev ? 1 : -1;
+
+        // Position the incoming section on the correct side (no transition)
+        const incoming = this.sections[next];
+        incoming.style.transition = 'none';
+        incoming.style.transform = dir > 0 ? 'translateY(100vh)' : 'translateY(-100vh)';
+        incoming.style.zIndex = '3';
+        incoming.getBoundingClientRect(); // force reflow
+
+        // Now animate both
+        incoming.style.transition = '';
+        incoming.style.transform = 'translateY(0)';
+
+        const outgoing = this.sections[prev];
+        outgoing.style.zIndex = '2';
+        outgoing.style.transform = dir > 0 ? 'translateY(-100vh)' : 'translateY(100vh)';
+
+        // Park all others
+        this.sections.forEach((s, i) => {
+            if (i !== prev && i !== next) {
+                s.style.transition = 'none';
+                s.style.transform = i < next ? 'translateY(-100vh)' : 'translateY(100vh)';
+                s.style.zIndex = '1';
+            }
+        });
+
+        this.current = next;
+        this.activateSection(next, false);
+        this.updateDots();
+        this.updateProgress();
+
+        // Hide scroll hint once user leaves hero
+        if (next > 0) {
+            const hint = document.querySelector('.scroll-hint');
+            if (hint) hint.style.opacity = '0';
         }
-    });
-}, { threshold: 0.15 });
 
-document.querySelectorAll('.content-section').forEach(s => observer.observe(s));
+        setTimeout(() => {
+            outgoing.style.zIndex = '1';
+            this.animating = false;
+        }, 900);
+    }
 
-// ===== HERO ENTRANCE =====
-window.addEventListener('load', () => {
-    document.querySelector('.hero').style.opacity = '1';
-});
+    activateSection(index, instant) {
+        const section = this.sections[index];
+        section.scrollTop = 0;
+        const anims = section.querySelectorAll('.anim:not(.visible)');
+        anims.forEach((el, i) => {
+            setTimeout(() => el.classList.add('visible'), instant ? 0 : 160 + i * 110);
+        });
+    }
+
+    sectionAtBottom() {
+        const s = this.sections[this.current];
+        return s.scrollTop + s.clientHeight >= s.scrollHeight - 8;
+    }
+    sectionAtTop() {
+        return this.sections[this.current].scrollTop <= 0;
+    }
+    sectionIsScrollable() {
+        const s = this.sections[this.current];
+        return s.scrollHeight > s.clientHeight + 10;
+    }
+
+    bindWheel() {
+        document.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const now = Date.now();
+            if (now - this.lastWheelTime < 80) return;
+            this.lastWheelTime = now;
+
+            const dir = e.deltaY > 0 ? 1 : -1;
+
+            if (this.sectionIsScrollable()) {
+                const s = this.sections[this.current];
+                if (dir > 0 && !this.sectionAtBottom()) {
+                    s.scrollBy({ top: Math.abs(e.deltaY) * 1.5, behavior: 'smooth' });
+                    return;
+                }
+                if (dir < 0 && !this.sectionAtTop()) {
+                    s.scrollBy({ top: -Math.abs(e.deltaY) * 1.5, behavior: 'smooth' });
+                    return;
+                }
+            }
+
+            if (!this.animating) this.goTo(this.current + dir);
+        }, { passive: false });
+    }
+
+    bindTouch() {
+        document.addEventListener('touchstart', (e) => {
+            this.touchStartY = e.touches[0].clientY;
+            this.touchStartScrollTop = this.sections[this.current].scrollTop;
+        }, { passive: true });
+
+        document.addEventListener('touchend', (e) => {
+            const deltaY = this.touchStartY - e.changedTouches[0].clientY;
+            if (Math.abs(deltaY) < 50 || this.animating) return;
+
+            if (deltaY > 0) {
+                // Swipe up: go forward if section has no more scroll room
+                if (!this.sectionIsScrollable() || this.sectionAtBottom()) this.goTo(this.current + 1);
+            } else {
+                // Swipe down: go back if at top
+                if (this.sectionAtTop()) this.goTo(this.current - 1);
+            }
+        }, { passive: true });
+    }
+
+    bindKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            if (['ArrowDown', 'PageDown'].includes(e.key) || (e.key === ' ' && !e.shiftKey)) {
+                e.preventDefault();
+                if (!this.animating) this.goTo(this.current + 1);
+            }
+            if (['ArrowUp', 'PageUp'].includes(e.key) || (e.key === ' ' && e.shiftKey)) {
+                e.preventDefault();
+                if (!this.animating) this.goTo(this.current - 1);
+            }
+        });
+    }
+
+    createDotNav() {
+        const nav = document.createElement('nav');
+        nav.id = 'dot-nav';
+        nav.setAttribute('aria-label', 'Chapter navigation');
+
+        const labels = [
+            'Hero', 'Prologue', 'Act I', 'Act II', 'Act III', 'Act IV',
+            'Act V', 'Act V·2', 'Act V·3', 'Act VI', 'Act VI·2', 'Act VI·3',
+            'Act VII', 'Act VII·2', 'Act VII·3', 'Act VII·4',
+            'Act VIII', 'Act IX', 'Act X', 'Intermission',
+            'Next Act', 'Signature'
+        ];
+
+        this.sections.forEach((s, i) => {
+            const btn = document.createElement('button');
+            btn.setAttribute('aria-label', labels[i] || `Section ${i + 1}`);
+            btn.title = labels[i] || `Section ${i + 1}`;
+            btn.addEventListener('click', () => this.goTo(i));
+            nav.appendChild(btn);
+            this.dots.push(btn);
+        });
+
+        document.body.appendChild(nav);
+        this.updateDots();
+    }
+
+    updateDots() {
+        this.dots.forEach((d, i) => d.classList.toggle('active', i === this.current));
+        const nav = document.getElementById('dot-nav');
+        if (nav) {
+            const isDark = ['dark', 'finale', 'hero'].some(c =>
+                this.sections[this.current].classList.contains(c));
+            nav.classList.toggle('on-dark', isDark);
+        }
+    }
+
+    updateProgress() {
+        const pct = (this.current / (this.sections.length - 1)) * 100;
+        const bar = document.getElementById('progressBar');
+        if (bar) bar.style.width = pct + '%';
+    }
+}
+
+window.addEventListener('DOMContentLoaded', () => { window.fp = new FullscreenScroll(); });
 
 // ===== VOICE GREETING =====
 const avatarWrapper = document.querySelector('.avatar-wrapper');
 const greeting = document.getElementById('greeting');
 const avatarPlayBtn = document.getElementById('avatarPlay');
 
-// On mobile, show play icon after delay (no hover)
 const isTouchDevice = 'ontouchstart' in window;
-if (isTouchDevice) {
+if (isTouchDevice && avatarPlayBtn) {
     setTimeout(() => avatarPlayBtn.classList.add('show-mobile'), 2500);
 }
 
-avatarWrapper.addEventListener('click', () => {
-    if (greeting.paused) {
-        greeting.currentTime = 0;
-        greeting.play().then(() => {
-            avatarWrapper.classList.add('playing');
-        }).catch(() => {});
-    } else {
-        greeting.pause();
-        greeting.currentTime = 0;
-        avatarWrapper.classList.remove('playing');
-    }
-});
-
-greeting.addEventListener('ended', () => {
-    avatarWrapper.classList.remove('playing');
-});
+if (avatarWrapper && greeting) {
+    avatarWrapper.addEventListener('click', () => {
+        if (greeting.paused) {
+            greeting.currentTime = 0;
+            greeting.play().then(() => { avatarWrapper.classList.add('playing'); }).catch(() => {});
+        } else {
+            greeting.pause();
+            greeting.currentTime = 0;
+            avatarWrapper.classList.remove('playing');
+        }
+    });
+    greeting.addEventListener('ended', () => { avatarWrapper.classList.remove('playing'); });
+}
 </script>
 
 </body>
